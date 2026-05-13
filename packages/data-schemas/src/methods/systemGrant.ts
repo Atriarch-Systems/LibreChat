@@ -226,7 +226,9 @@ export function createSystemGrantMethods(mongoose: typeof import('mongoose')) {
   }
 
   /**
-   * Revoke a capability from a principal.
+   * Revoke a capability from a principal. Returns the deletion result so
+   * callers (e.g. audit emission) can distinguish a real revoke from a
+   * no-op against a grant that didn't exist.
    */
   async function revokeCapability(
     {
@@ -241,7 +243,7 @@ export function createSystemGrantMethods(mongoose: typeof import('mongoose')) {
       tenantId?: string;
     },
     session?: ClientSession,
-  ): Promise<void> {
+  ): Promise<{ deletedCount: number }> {
     const SystemGrant = mongoose.models.SystemGrant as Model<ISystemGrant>;
 
     const normalizedPrincipalId = normalizePrincipalId(principalId, principalType);
@@ -254,7 +256,8 @@ export function createSystemGrantMethods(mongoose: typeof import('mongoose')) {
     };
 
     const options = session ? { session } : {};
-    await SystemGrant.deleteOne(filter, options);
+    const result = await SystemGrant.deleteOne(filter, options);
+    return { deletedCount: result.deletedCount ?? 0 };
   }
 
   /**
