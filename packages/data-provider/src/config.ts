@@ -616,6 +616,12 @@ export const endpointSchema = baseEndpointSchema.merge(
     iconURL: z.string().optional(),
     modelDisplayLabel: z.string().optional(),
     headers: z.record(z.string()).optional(),
+    atriarch: z
+      .object({
+        forwardUserAccessToken: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     addParams: addParamsSchema.optional(),
     dropParams: z.array(z.string()).optional(),
     customParams: z

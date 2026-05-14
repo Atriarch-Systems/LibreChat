@@ -7,6 +7,10 @@ import {
 import type { TEndpoint } from 'librechat-data-provider';
 import type { AppConfig } from '@librechat/data-schemas';
 import type { BaseInitializeParams, InitializeResultBase, EndpointTokenConfig } from '~/types';
+import {
+  shouldForwardAtriarchUserAccessToken,
+  resolveAtriarchCustomEndpointApiKey,
+} from '~/atriarch/customEndpointAuth';
 import { getOpenAIConfig } from '~/endpoints/openai/config';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
 import { getCustomEndpointConfig } from '~/app/config';
@@ -76,8 +80,9 @@ export async function initializeCustom({
 
   const CUSTOM_API_KEY = extractEnvVariable(endpointConfig.apiKey ?? '');
   const CUSTOM_BASE_URL = extractEnvVariable(endpointConfig.baseURL ?? '');
+  const forwardsAtriarchUserAccessToken = shouldForwardAtriarchUserAccessToken(endpointConfig);
 
-  if (CUSTOM_API_KEY.match(envVarRegex)) {
+  if (!forwardsAtriarchUserAccessToken && CUSTOM_API_KEY.match(envVarRegex)) {
     throw new Error(`Missing API Key for ${endpoint}.`);
   }
 
@@ -85,7 +90,7 @@ export async function initializeCustom({
     throw new Error(`Missing Base URL for ${endpoint}.`);
   }
 
-  const userProvidesKey = isUserProvided(CUSTOM_API_KEY);
+  const userProvidesKey = !forwardsAtriarchUserAccessToken && isUserProvided(CUSTOM_API_KEY);
   const userProvidesURL = isUserProvided(CUSTOM_BASE_URL);
 
   // Expiry is only checked when present: the Agents API sends an OpenAI-compatible
@@ -119,7 +124,7 @@ export async function initializeCustom({
     );
   }
 
-  if (!apiKey) {
+  if (!apiKey && !forwardsAtriarchUserAccessToken) {
     throw new Error(`${endpoint} API key not provided.`);
   }
 
@@ -130,6 +135,13 @@ export async function initializeCustom({
   if (userProvidesURL) {
     await validateEndpointURL(baseURL, endpoint, appConfig?.endpoints?.allowedAddresses);
   }
+
+  const endpointApiKey = resolveAtriarchCustomEndpointApiKey({
+    endpoint,
+    endpointConfig,
+    req,
+    configuredApiKey: apiKey,
+  });
 
   let endpointTokenConfig: EndpointTokenConfig | undefined;
 
@@ -154,7 +166,7 @@ export async function initializeCustom({
     endpointConfig.models?.fetch &&
     !endpointTokenConfig
   ) {
-    await fetchModels({ apiKey, baseURL, name: endpoint, user: userId, tokenKey });
+    await fetchModels({ apiKey: endpointApiKey, baseURL, name: endpoint, user: userId, tokenKey });
     endpointTokenConfig = (await cache.get(tokenKey)) as EndpointTokenConfig | undefined;
   }
 
@@ -172,7 +184,7 @@ export async function initializeCustom({
     ...clientOptions,
   };
 
-  const options = getOpenAIConfig(apiKey, finalClientOptions, endpoint);
+  const options = getOpenAIConfig(endpointApiKey, finalClientOptions, endpoint);
   if (options != null) {
     (options as InitializeResultBase).useLegacyContent = true;
     (options as InitializeResultBase).endpointTokenConfig = endpointTokenConfig;
