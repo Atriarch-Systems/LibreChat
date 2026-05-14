@@ -48,16 +48,15 @@ jobs:
         run: echo "image_tag=v1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push LibreChat image
+        # Immutable version tag only — never push :latest. GitOps manifests reference
+        # the exact tag, so :latest would be a footgun (drift, rollbacks, race on pull).
         run: |
           docker build \
             --network=host \
             --file "${{ env.DOCKERFILE_PATH }}" \
             --tag "${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}" \
-            --tag "${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
-            --target api-build \
             .
           docker push "${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}"
-          docker push "${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
 
   update-gitops:
     name: Update GitOps
