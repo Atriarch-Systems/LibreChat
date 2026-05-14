@@ -1,0 +1,65 @@
+name: Atriarch — Upstream Sync
+
+# Periodically merges danny-avila/LibreChat:main into our `atriarch` branch via a PR.
+# Manual review required before merge so we can resolve conflicts in our patches
+# (primarily files under `atriarch/` and small hook points in upstream files).
+
+on:
+  schedule:
+    # Mondays 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Sync upstream main into atriarch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0
+          ref: atriarch
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/danny-avila/LibreChat.git
+          git fetch upstream main
+
+      - name: Create sync branch
+        id: branch
+        run: |
+          BRANCH="upstream-sync/$(date -u +%Y%m%d)"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          git checkout -b "$BRANCH"
+
+      - name: Merge upstream/main
+        id: merge
+        continue-on-error: true
+        run: |
+          git merge --no-edit upstream/main || echo "conflict=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push sync branch
+        run: |
+          git push origin "${{ steps.branch.outputs.branch }}"
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="chore: sync upstream LibreChat $(date -u +%Y-%m-%d)"
+          BODY="Automated weekly merge of danny-avila/LibreChat:main into atriarch.\n\nReview Atriarch hook points before merging:\n- packages/api/src/endpoints/custom/initialize.ts (forwardUserToken integration)\n- api/server/index.js (atriarch bootstrap)\n- librechat.yaml schema additions\n\nIf there are conflicts they must be resolved manually."
+          gh pr create \
+            --base atriarch \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --label upstream-sync || echo "PR may already exist for this branch"

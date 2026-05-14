@@ -1,0 +1,97 @@
+name: Atriarch — Build & Deploy LibreChat
+
+# Atriarch-specific CI for our LibreChat fork.
+# All upstream LibreChat workflows in this repo are disabled in favor of this one.
+# Mirrors the conventions used in Atriarch.Ai/.github/workflows/ci.yml so secrets/runners are reused.
+
+on:
+  push:
+    branches: [atriarch]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.devcontainer/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atriarch-librechat-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+  IMAGE_NAME: atriarch-librechat
+  DOCKERFILE_PATH: Dockerfile.multi
+  GITOPS_REPO: Atriarch-Systems/atriarch-argo-state
+  GITOPS_BRANCH: production
+  GITOPS_FILE_PATH: atriarch-ai/librechat-deployment.yaml
+
+jobs:
+  build-and-push:
+    name: Build and Push Image
+    runs-on: [self-hosted, Linux, X64, amd64, arc-amd64]
+    permissions:
+      contents: read
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+
+      - name: Docker registry login
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login "${{ env.DOCKER_REGISTRY }}" -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Set image tag
+        id: meta
+        run: echo "image_tag=v1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push LibreChat image
+        run: |
+          docker build \
+            --network=host \
+            --file "${{ env.DOCKERFILE_PATH }}" \
+            --tag "${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}" \
+            --tag "${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+            --target api-build \
+            .
+          docker push "${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}"
+          docker push "${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+  update-gitops:
+    name: Update GitOps
+    needs: build-and-push
+    runs-on: [self-hosted, Linux, X64, amd64, arc-amd64]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          ref: ${{ env.GITOPS_BRANCH }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops-repo
+
+      - name: Update deployment image
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          set -e
+          FILE="gitops-repo/${{ env.GITOPS_FILE_PATH }}"
+          IMAGE="${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+          sed -E -i "s|(^[[:space:]]*image:[[:space:]]*).*$|\\1${IMAGE}|" "$FILE"
+          grep -F "${IMAGE}" "$FILE" >/dev/null
+
+      - name: Commit and push GitOps changes
+        run: |
+          cd gitops-repo
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add "${{ env.GITOPS_FILE_PATH }}"
+          if git diff --cached --quiet; then
+            echo "No GitOps manifest changes to commit"
+            exit 0
+          fi
+          git commit -m "Update Atriarch LibreChat image to ${{ needs.build-and-push.outputs.image_tag }} (commit: ${{ github.sha }})"
+          git push
