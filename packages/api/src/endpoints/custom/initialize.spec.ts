@@ -41,6 +41,9 @@ function createParams(overrides: {
   userBaseURL?: string;
   userApiKey?: string;
   expiresAt?: string;
+  atriarch?: { forwardUserAccessToken?: boolean };
+  user?: Record<string, unknown>;
+  session?: Record<string, unknown>;
 }): BaseInitializeParams {
   const { apiKey = 'sk-test-key', baseURL = 'https://api.example.com/v1' } = overrides;
 
@@ -48,6 +51,7 @@ function createParams(overrides: {
     apiKey,
     baseURL,
     models: {},
+    ...(overrides.atriarch ? { atriarch: overrides.atriarch } : {}),
   });
 
   const db = {
@@ -59,7 +63,8 @@ function createParams(overrides: {
 
   return {
     req: {
-      user: { id: 'user-1' },
+      user: overrides.user ?? { id: 'user-1' },
+      ...(overrides.session ? { session: overrides.session } : {}),
       body: { key: overrides.expiresAt ?? '2099-01-01' },
       config: {},
     } as unknown as BaseInitializeParams['req'],
@@ -157,6 +162,66 @@ describe('initializeCustom – Agents API user key resolution', () => {
     await initializeCustom(params);
 
     expect(params.db.getUserKeyValues).not.toHaveBeenCalled();
+  });
+});
+
+describe('initializeCustom – Atriarch user access token forwarding', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should use the authenticated OpenID access token as the custom endpoint API key', async () => {
+    const params = createParams({
+      apiKey: 'unused-system-key',
+      baseURL: 'https://ai.atriarch.systems/v1',
+      atriarch: { forwardUserAccessToken: true },
+      user: {
+        id: 'user-1',
+        provider: 'openid',
+        federatedTokens: { access_token: 'ids-user-access-token' },
+      },
+    });
+
+    await initializeCustom(params);
+
+    expect(params.db.getUserKeyValues).not.toHaveBeenCalled();
+    expect(mockGetOpenAIConfig).toHaveBeenCalledWith(
+      'ids-user-access-token',
+      expect.any(Object),
+      'test-custom',
+    );
+  });
+
+  it('should use the server-side OpenID session access token when federatedTokens is unavailable', async () => {
+    const params = createParams({
+      apiKey: '${ATRIARCH_AI_API_KEY}',
+      baseURL: 'https://ai.atriarch.systems/v1',
+      atriarch: { forwardUserAccessToken: true },
+      user: { id: 'user-1', provider: 'openid' },
+      session: { openidTokens: { accessToken: 'session-user-access-token' } },
+    });
+
+    await initializeCustom(params);
+
+    expect(mockGetOpenAIConfig).toHaveBeenCalledWith(
+      'session-user-access-token',
+      expect.any(Object),
+      'test-custom',
+    );
+  });
+
+  it('should fail closed instead of falling back to a system API key when no user token is available', async () => {
+    const params = createParams({
+      apiKey: 'service-key-that-must-not-be-used',
+      baseURL: 'https://ai.atriarch.systems/v1',
+      atriarch: { forwardUserAccessToken: true },
+      user: { id: 'user-1', provider: 'openid' },
+    });
+
+    await expect(initializeCustom(params)).rejects.toThrow(
+      'Atriarch endpoint test-custom requires an OpenID access token',
+    );
+    expect(mockGetOpenAIConfig).not.toHaveBeenCalled();
   });
 });
 
