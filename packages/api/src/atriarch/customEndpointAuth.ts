@@ -31,6 +31,7 @@ function getOpenIdAccessToken(req: ServerRequest): string | undefined {
 
   return (
     user?.federatedTokens?.access_token ||
+    user?.openidTokens?.access_token ||
     session.session?.openidTokens?.accessToken ||
     user?.tokenset?.access_token
   );

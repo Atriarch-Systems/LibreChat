@@ -192,6 +192,27 @@ describe('initializeCustom – Atriarch user access token forwarding', () => {
     );
   });
 
+  it('should use req.user.openidTokens access token when federatedTokens is unavailable', async () => {
+    const params = createParams({
+      apiKey: 'unused-system-key',
+      baseURL: 'https://ai.atriarch.systems/v1',
+      atriarch: { forwardUserAccessToken: true },
+      user: {
+        id: 'user-1',
+        provider: 'openid',
+        openidTokens: { access_token: 'user-openid-access-token' },
+      },
+    });
+
+    await initializeCustom(params);
+
+    expect(mockGetOpenAIConfig).toHaveBeenCalledWith(
+      'user-openid-access-token',
+      expect.any(Object),
+      'test-custom',
+    );
+  });
+
   it('should use the server-side OpenID session access token when federatedTokens is unavailable', async () => {
     const params = createParams({
       apiKey: '${ATRIARCH_AI_API_KEY}',
