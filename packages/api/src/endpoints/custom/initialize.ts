@@ -140,7 +140,7 @@ export async function initializeCustom({
     endpoint,
     endpointConfig,
     req,
-    fallbackApiKey: apiKey,
+    configuredApiKey: apiKey,
   });
 
   let endpointTokenConfig: EndpointTokenConfig | undefined;
