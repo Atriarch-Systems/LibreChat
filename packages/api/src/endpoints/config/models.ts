@@ -10,6 +10,10 @@ import type { AppConfig } from '@librechat/data-schemas';
 import type { ServerRequest, GetUserKeyValuesFunction, UserKeyValues } from '~/types';
 import type { FetchModelsParams } from '~/endpoints/models';
 import { fetchModels as defaultFetchModels } from '~/endpoints/models';
+import {
+  shouldForwardAtriarchUserAccessToken,
+  resolveAtriarchCustomEndpointApiKey,
+} from '~/atriarch/customEndpointAuth';
 import { isUserProvided } from '~/utils';
 
 interface ResolvedEndpoint {
@@ -63,7 +67,10 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
     const customEndpoints = (appConfig.endpoints[EModelEndpoint.custom] as TEndpoint[]).filter(
       (endpoint) =>
         endpoint.baseURL &&
-        endpoint.apiKey &&
+        // Atriarch fork: forwardUserAccessToken endpoints don't need a static
+        // apiKey; the signed-in user's OpenID access token is forwarded per
+        // request. Accept those as valid.
+        (endpoint.apiKey || shouldForwardAtriarchUserAccessToken(endpoint)) &&
         endpoint.name &&
         endpoint.models &&
         (endpoint.models.fetch || endpoint.models.default),
@@ -83,14 +90,41 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
       endpointsMap[name] = endpoint;
       modelsConfig[name] = [];
 
-      const resolvedApiKey = extractEnvVariable(apiKey);
+      const forwardsAtriarchUserAccessToken = shouldForwardAtriarchUserAccessToken(endpoint);
+      let resolvedApiKey = extractEnvVariable(apiKey ?? '');
+      if (forwardsAtriarchUserAccessToken) {
+        try {
+          // Replace the placeholder configured apiKey with the signed-in
+          // user's OpenID access token for this request only. Fails closed
+          // when the user has no forwarded OIDC token available.
+          resolvedApiKey = resolveAtriarchCustomEndpointApiKey({
+            endpoint: name,
+            endpointConfig: endpoint,
+            req,
+            configuredApiKey: resolvedApiKey,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.warn(
+            `[loadConfigModels] forwardUserAccessToken unavailable for "${name}": ${msg}`,
+          );
+          if (Array.isArray(endpoint.models?.default)) {
+            modelsConfig[name] = endpoint.models.default.map((model) =>
+              typeof model === 'string' ? model : model.name,
+            );
+          }
+          continue;
+        }
+      }
       const resolvedBaseURL = extractEnvVariable(baseURL);
       const entry: ResolvedEndpoint = {
         name,
         endpoint,
         apiKey: resolvedApiKey,
         baseURL: resolvedBaseURL,
-        apiKeyIsUserProvided: isUserProvided(resolvedApiKey),
+        // When forwarding the OIDC token, the user is not pasting their own
+        // key, so don't push this endpoint into the user-key-pull path.
+        apiKeyIsUserProvided: forwardsAtriarchUserAccessToken ? false : isUserProvided(resolvedApiKey),
         baseURLIsUserProvided: isUserProvided(resolvedBaseURL),
       };
       resolved.push(entry);
