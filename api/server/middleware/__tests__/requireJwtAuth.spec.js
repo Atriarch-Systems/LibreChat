@@ -261,58 +261,62 @@ describe('requireJwtAuth tenant context chaining', () => {
     expect(maybeRefreshCloudFrontAuthCookiesMiddleware).not.toHaveBeenCalled();
   });
 
-  it('does not use OpenID JWT when the signed OpenID reuse cookie is missing', () => {
+  // The openid_user_id reuse cookie's inner JWT expires well before the OIDC access
+  // token (and the longer-lived token_provider=openid cookie). When it lapses we must
+  // still authenticate the RS256 bearer via the openidJwt (JWKS) strategy — falling
+  // back to the HS256 'jwt' strategy here is what produced `invalid algorithm`.
+  it('uses OpenID JWT even when the signed reuse cookie is missing (token validated by JWKS)', async () => {
     isEnabled.mockReturnValue(true);
     mockRegisteredStrategies.add('openidJwt');
     const req = mockReq(undefined, {
       headers: { cookie: 'token_provider=openid' },
       _mockStrategies: {
+        openidJwt: { user: { id: 'user-openid', tenantId: 'tenant-openid', role: 'user' } },
         jwt: { user: false, info: { message: 'invalid signature' }, status: 401 },
-        openidJwt: { user: { tenantId: 'tenant-openid', role: 'user' } },
       },
     });
     const res = mockRes();
-    const next = jest.fn();
+    const tenantId = await new Promise((resolve) => {
+      requireJwtAuth(req, res, () => {
+        resolve(getTenantId());
+      });
+    });
 
-    requireJwtAuth(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(req.authStrategy).toBeUndefined();
-    expect(passport.authenticate).toHaveBeenCalledTimes(1);
+    expect(tenantId).toBe('tenant-openid');
+    expect(req.authStrategy).toBe('openidJwt');
+    expect(res.status).not.toHaveBeenCalled();
     expect(passport.authenticate).toHaveBeenCalledWith(
-      'jwt',
+      'openidJwt',
       { session: false },
       expect.any(Function),
     );
-    expect(maybeRefreshCloudFrontAuthCookiesMiddleware).not.toHaveBeenCalled();
   });
 
-  it('does not use OpenID JWT when the OpenID reuse cookie is invalid', () => {
+  it('uses OpenID JWT even when the reuse cookie is expired/invalid (token validated by JWKS)', async () => {
     isEnabled.mockReturnValue(true);
     mockRegisteredStrategies.add('openidJwt');
     const req = mockReq(undefined, {
       headers: { cookie: 'token_provider=openid; openid_user_id=invalid-jwt' },
       _mockStrategies: {
+        openidJwt: { user: { id: 'user-openid', tenantId: 'tenant-openid', role: 'user' } },
         jwt: { user: false, info: { message: 'invalid signature' }, status: 401 },
-        openidJwt: { user: { tenantId: 'tenant-openid', role: 'user' } },
       },
     });
     const res = mockRes();
-    const next = jest.fn();
+    const tenantId = await new Promise((resolve) => {
+      requireJwtAuth(req, res, () => {
+        resolve(getTenantId());
+      });
+    });
 
-    requireJwtAuth(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(req.authStrategy).toBeUndefined();
-    expect(passport.authenticate).toHaveBeenCalledTimes(1);
+    expect(tenantId).toBe('tenant-openid');
+    expect(req.authStrategy).toBe('openidJwt');
+    expect(res.status).not.toHaveBeenCalled();
     expect(passport.authenticate).toHaveBeenCalledWith(
-      'jwt',
+      'openidJwt',
       { session: false },
       expect.any(Function),
     );
-    expect(maybeRefreshCloudFrontAuthCookiesMiddleware).not.toHaveBeenCalled();
   });
 
   it('skips OpenID JWT fallback when the strategy was not registered', async () => {

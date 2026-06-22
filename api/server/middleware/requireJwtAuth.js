@@ -45,8 +45,16 @@ const requireJwtAuth = (req, res, next) => {
   const openidReuseEnabled = isEnabled(process.env.OPENID_REUSE_TOKENS);
   const openidJwtAvailable = openidReuseEnabled && hasPassportStrategy('openidJwt');
   const openIdReuseUserId = getValidOpenIdReuseUserId(parsedCookies);
-  const useOpenIdJwt =
-    tokenProvider === 'openid' && openidJwtAvailable && openIdReuseUserId != null;
+  // Select the openidJwt (JWKS/RS256) strategy whenever the caller is an OpenID
+  // session and the strategy is registered — do NOT gate it on the openid_user_id
+  // reuse cookie. That cookie's inner JWT expires after expiryInMilliseconds (much
+  // sooner than the OIDC access token / the longer token_provider cookie). If we
+  // gate on it, an expired reuse cookie downgrades us to the HS256-only 'jwt'
+  // strategy, which then chokes on the still-valid RS256 bearer with
+  // `JsonWebTokenError: invalid algorithm`. The openidJwt strategy fully validates
+  // the token on its own (JWKS signature + issuer + audience + user lookup), so the
+  // reuse-cookie binding below is a secondary check, applied only when present.
+  const useOpenIdJwt = tokenProvider === 'openid' && openidJwtAvailable;
   const strategies = useOpenIdJwt ? ['openidJwt', 'jwt'] : ['jwt'];
 
   const authenticateWithStrategy = (index) => {
@@ -63,7 +71,15 @@ const requireJwtAuth = (req, res, next) => {
           message: info?.message || 'Unauthorized',
         });
       }
-      if (strategy === 'openidJwt' && getAuthenticatedUserId(user) !== openIdReuseUserId) {
+      // Only enforce the reuse-cookie binding when the cookie is actually present and
+      // valid. Once its inner JWT has expired (openIdReuseUserId === null) we rely on
+      // the openidJwt strategy's own JWKS/issuer/audience validation rather than
+      // rejecting a cryptographically valid token.
+      if (
+        strategy === 'openidJwt' &&
+        openIdReuseUserId != null &&
+        getAuthenticatedUserId(user) !== openIdReuseUserId
+      ) {
         if (index + 1 < strategies.length) {
           return authenticateWithStrategy(index + 1);
         }
