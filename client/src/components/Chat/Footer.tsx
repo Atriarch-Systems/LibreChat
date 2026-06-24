@@ -27,9 +27,9 @@ function Footer({ className }: { className?: string }) {
   const mainContentParts = (
     typeof config?.customFooter === 'string'
       ? config.customFooter
-      : '[LibreChat ' +
+      : '[Atriarch AI ' +
         Constants.VERSION +
-        '](https://librechat.ai) - ' +
+        '](https://atriarch.systems) - ' +
         localize('com_ui_latest_footer')
   ).split('|');
 

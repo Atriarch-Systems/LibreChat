@@ -76,7 +76,7 @@
   "com_agents_mcp_description_placeholder": "それが何をするのか簡単に説明してください",
   "com_agents_mcp_icon_size": "最小サイズ 128 x 128 px",
   "com_agents_mcp_name_placeholder": "カスタムツール",
-  "com_agents_mcp_trust_subtext": "カスタムコネクタはLibreChatによって検証されません。",
+  "com_agents_mcp_trust_subtext": "カスタムコネクタはAtriarch Systemsによって検証されません。",
   "com_agents_missing_name": "エージェントを作成する前に名前を入力してください。",
   "com_agents_missing_provider_model": "エージェントを作成する前に、プロバイダーとモデルを選択してください。",
   "com_agents_name_placeholder": "オプション: エージェントの名前",

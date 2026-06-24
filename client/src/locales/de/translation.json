@@ -76,7 +76,7 @@
   "com_agents_mcp_description_placeholder": "Erkläre in wenigen Worten, was es tut",
   "com_agents_mcp_icon_size": "Mindestgröße 128 x 128 px",
   "com_agents_mcp_name_placeholder": "Eigenes Tool",
-  "com_agents_mcp_trust_subtext": "Benutzerdefinierte Konnektoren werden nicht von LibreChat verifiziert.",
+  "com_agents_mcp_trust_subtext": "Benutzerdefinierte Konnektoren werden nicht von Atriarch Systems verifiziert.",
   "com_agents_missing_name": "Bitte gib einen Namen ein, bevor du einen Agenten erstellst.",
   "com_agents_missing_provider_model": "Bitte wählen Sie einen Anbieter und ein Modell aus, bevor Sie einen Agenten erstellen.",
   "com_agents_name_placeholder": "Optional: Der Name des Agenten",

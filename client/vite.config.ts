@@ -88,11 +88,11 @@ export default defineConfig(({ command }) => ({
       },
       includeAssets: [],
       manifest: {
-        name: 'LibreChat',
-        short_name: 'LibreChat',
+        name: 'Atriarch AI',
+        short_name: 'Atriarch',
         display: 'standalone',
-        background_color: '#000000',
-        theme_color: '#009688',
+        background_color: '#0d0d0d',
+        theme_color: '#132c48',
         icons: [
           {
             src: 'assets/favicon-32x32.png',
