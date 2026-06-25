@@ -250,6 +250,55 @@ const AuthContextProvider = ({
     setUserContext,
   ]);
 
+  /**
+   * Proactively refresh the OIDC token before it expires. The Atriarch chat fork forwards the
+   * signed-in user's OIDC access token to the inference API, so a tab left idle past the token's
+   * ~1h lifetime forwards a stale token and the next send silently fails until a page reload
+   * (which re-runs silentRefresh at mount). A self-rescheduling timer refreshes a couple of
+   * minutes before expiry (capped at 10 min); the server reuses recently-refreshed tokens, so
+   * frequent ticks are cheap. This keeps the forwarded token valid across idle gaps.
+   */
+  useEffect(() => {
+    if (authConfig?.test === true || !token || !isAuthenticated) {
+      return;
+    }
+
+    const MIN_DELAY = 60 * 1000;
+    const MAX_DELAY = 10 * 60 * 1000;
+    const EXPIRY_BUFFER = 2 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const decodeExpMs = (jwt: string): number | null => {
+      try {
+        const part = jwt.split('.')[1];
+        if (!part) {
+          return null;
+        }
+        const payload = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/'))) as {
+          exp?: number;
+        };
+        return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const arm = () => {
+      const expMs = decodeExpMs(token);
+      const untilRefresh = expMs != null ? expMs - Date.now() - EXPIRY_BUFFER : MAX_DELAY;
+      const delay = Math.max(MIN_DELAY, Math.min(untilRefresh, MAX_DELAY));
+      timer = setTimeout(() => {
+        silentRefresh();
+        // Re-arm even when the refreshed token is byte-identical (server-side token reuse),
+        // since that case won't change `token` and re-run this effect.
+        arm();
+      }, delay);
+    };
+
+    arm();
+    return () => clearTimeout(timer);
+  }, [token, isAuthenticated, authConfig?.test, silentRefresh]);
+
   useEffect(() => {
     const handleTokenUpdate = (event: CustomEvent<string>) => {
       console.log('tokenUpdated event received event');
