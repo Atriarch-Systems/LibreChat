@@ -1,4 +1,3 @@
-const path = require('path');
 const { logger } = require('@librechat/data-schemas');
 const { loadServiceKey, isUserProvided } = require('@librechat/api');
 const { config } = require('./EndpointService');
@@ -13,13 +12,14 @@ async function loadAsyncEndpoints() {
   if (isGoogleKeyProvided) {
     /** If GOOGLE_KEY is provided, check if it's user_provided */
     googleUserProvides = isUserProvided(googleKey);
-  } else {
-    /** Only attempt to load service key if GOOGLE_KEY is not provided */
-    const serviceKeyPath =
-      process.env.GOOGLE_SERVICE_KEY_FILE || path.join(__dirname, '../../..', 'data', 'auth.json');
-
+  } else if (process.env.GOOGLE_SERVICE_KEY_FILE) {
+    /**
+     * Only probe for a Vertex AI service key when one is explicitly configured. Without this
+     * guard, a deployment that uses neither GOOGLE_KEY nor a Vertex service account still
+     * error-logs a missing default api/data/auth.json on every endpoints-config load.
+     */
     try {
-      serviceKey = await loadServiceKey(serviceKeyPath);
+      serviceKey = await loadServiceKey(process.env.GOOGLE_SERVICE_KEY_FILE);
     } catch (error) {
       logger.error('Error loading service key', error);
       serviceKey = null;
