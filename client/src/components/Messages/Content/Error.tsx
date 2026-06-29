@@ -84,6 +84,23 @@ const errorMessages = {
     const provider = (alternateName[endpoint ?? ''] as string | undefined) ?? endpoint ?? 'unknown';
     return localize('com_error_illegal_model_request', { 0: model, 1: provider });
   },
+  // Atriarch: upstream inference API returns HTTP 428 `policy_acceptance_required`
+  // until the user accepts the current Atriarch AI service terms. Render a clickable
+  // link to the accept-terms page (same origin as the chat) instead of a raw string.
+  policy_acceptance_required: () => (
+    <>
+      You need to accept the Atriarch AI service terms before you can send messages.{' '}
+      <a
+        href="/accept-terms?returnTo=%2Fchat"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-semibold underline underline-offset-2"
+      >
+        Review &amp; accept the terms
+      </a>{' '}
+      (opens in a new tab), then send your message again.
+    </>
+  ),
   invalid_api_key:
     'Invalid API key. Please check your API key and try again. You can do this by clicking on the model logo in the left corner of the textbox and selecting "Set Token" for the current selected endpoint. Thank you for your understanding.',
   insufficient_quota:
@@ -126,6 +143,20 @@ const errorMessages = {
 
 const Error = ({ text }: { text: string }) => {
   const localize = useLocalize();
+
+  // Atriarch: the inference API gates requests behind service-terms acceptance and
+  // returns a stable `policy_acceptance_required` / "Accept the current Atriarch AI
+  // service terms" error (HTTP 428). It can arrive either as a structured error code
+  // (handled by the errorMessages map below) or wrapped as plain text
+  // ("An error occurred while processing the request: 428 Accept the current ..."),
+  // so match both forms here and surface a clickable accept link instead of the raw text.
+  if (
+    /policy_acceptance_required/i.test(text) ||
+    /accept the current atriarch ai service terms/i.test(text)
+  ) {
+    return errorMessages.policy_acceptance_required();
+  }
+
   const jsonString = extractJson(text);
   const errorMessage = text.length > 512 && !jsonString ? text.slice(0, 512) + '...' : text;
   const defaultResponse = `Something went wrong. Here's the specific error message we encountered: ${errorMessage}`;
