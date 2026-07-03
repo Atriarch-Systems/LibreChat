@@ -84,25 +84,27 @@ const getReusableOpenIDSessionToken = (openidTokens) => {
     return null;
   }
 
-  const candidates = [
-    { token: openidTokens?.idToken, type: 'id_token' },
-    { token: openidTokens?.accessToken, type: 'access_token' },
-  ];
+  /**
+   * The app bearer is validated per-request by the openidJwt strategy as aud=OPENID_CLIENT_ID,
+   * which only the id_token satisfies — the access_token's audience is the resource API
+   * (e.g. atriarch.ai.api), so reusing it as the app token makes every /api/* call 401.
+   * Only ever reuse a still-valid id_token; when it has expired (id_token lifetimes are short,
+   * IdP default 300s), return null so refreshController performs a real refresh_token grant and
+   * mints a fresh id_token instead of falling back to the access_token.
+   */
+  const idToken = openidTokens?.idToken;
+  if (!idToken) {
+    return null;
+  }
+  /** Decode only: token is from the trusted server-side session; expiry gates reuse. */
+  const decoded = jwt.decode(idToken);
   const now = Math.floor(Date.now() / 1000);
-
-  for (const candidate of candidates) {
-    if (!candidate.token) {
-      continue;
-    }
-    /** Decode only: tokens are from the trusted server-side session; expiry gates reuse. */
-    const decoded = jwt.decode(candidate.token);
-    if (
-      decoded &&
-      typeof decoded === 'object' &&
-      decoded.exp > now + OPENID_REUSE_EXPIRY_BUFFER_SECONDS
-    ) {
-      return candidate;
-    }
+  if (
+    decoded &&
+    typeof decoded === 'object' &&
+    decoded.exp > now + OPENID_REUSE_EXPIRY_BUFFER_SECONDS
+  ) {
+    return { token: idToken, type: 'id_token' };
   }
 
   return null;
