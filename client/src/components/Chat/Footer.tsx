@@ -3,6 +3,7 @@ import TagManager from 'react-gtm-module';
 import ReactMarkdown from 'react-markdown';
 import { Constants } from 'librechat-data-provider';
 import { useGetStartupConfig } from '~/data-provider';
+import UsageChip from '~/components/Atriarch/UsageChip';
 import { useLocalize } from '~/hooks';
 
 function Footer({ className }: { className?: string }) {
@@ -67,9 +68,12 @@ function Footer({ className }: { className?: string }) {
     </React.Fragment>
   ));
 
-  const footerElements = [...mainContentRender, privacyPolicyRender, termsOfServiceRender].filter(
-    Boolean,
-  );
+  const footerElements = [
+    ...mainContentRender,
+    privacyPolicyRender,
+    termsOfServiceRender,
+    <UsageChip key="atriarch-usage" />,
+  ].filter(Boolean);
 
   return (
     <div className="relative w-full">
