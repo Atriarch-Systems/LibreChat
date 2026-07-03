@@ -240,6 +240,17 @@ const refreshController = async (req, res) => {
       return res.status(200).send({ token, user: sanitizeUserForAuthResponse(user) });
     } catch (error) {
       logger.error('[refreshController] OpenID token refresh error', error);
+      // Distinguish a genuinely rejected refresh token (the user must re-authenticate) from a
+      // transient failure talking to the IdP (network blip, IdP 5xx, deploy window). A rejected
+      // grant carries an OAuth error (e.g. invalid_grant) or a 4xx status -> 403 so the client
+      // sends the user to login. A transient failure has no OAuth error and no/5xx status -> 503
+      // so the client can retry without logging the user out while their bearer is still valid.
+      const status = error?.response?.status ?? error?.status ?? error?.statusCode;
+      const oauthError = typeof error?.error === 'string' ? error.error : undefined;
+      const isTransient = oauthError == null && (typeof status !== 'number' || status >= 500);
+      if (isTransient) {
+        return res.status(503).send('OpenID refresh temporarily unavailable');
+      }
       return res.status(403).send('Invalid OpenID refresh token');
     }
   }

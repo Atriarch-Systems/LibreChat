@@ -37,6 +37,24 @@ if (import.meta.hot) {
   import.meta.hot.data.__AuthContext = AuthContext;
 }
 
+/**
+ * Refresh resilience (Atriarch): a single transient failure to refresh the OIDC token must not
+ * log the user out. Network errors (no HTTP response) and 5xx responses — including the server's
+ * 503 when the IdP is briefly unreachable, e.g. during a deploy — are retryable; only a genuine
+ * rejection (4xx, e.g. an invalid_grant surfaced as 403) means the user must re-authenticate.
+ */
+const MAX_REFRESH_RETRIES = 3;
+const REFRESH_RETRY_DELAYS_MS = [2000, 5000, 15000];
+
+const isTransientAuthError = (error: unknown): boolean => {
+  const err = error as { response?: { status?: number }; status?: number } | undefined;
+  const status = err?.response?.status ?? err?.status;
+  if (typeof status !== 'number') {
+    return true;
+  }
+  return status >= 500;
+};
+
 const AuthContextProvider = ({
   authConfig,
   children,
@@ -45,6 +63,7 @@ const AuthContextProvider = ({
   children: ReactNode;
 }) => {
   const isExternalRedirectRef = useRef(false);
+  const refreshRetryRef = useRef(0);
   const [user, setUser] = useRecoilState(store.user);
   const logoutRedirectRef = useRef<string | undefined>(undefined);
   const [token, setToken] = useState<string | undefined>(undefined);
@@ -186,6 +205,7 @@ const AuthContextProvider = ({
         }
         const { user, token = '' } = data ?? {};
         if (token) {
+          refreshRetryRef.current = 0;
           const storedRedirect = sessionStorage.getItem(SESSION_KEY);
           sessionStorage.removeItem(SESSION_KEY);
           const baseUrl = apiBaseUrl();
@@ -205,6 +225,7 @@ const AuthContextProvider = ({
         if (authConfig?.test === true) {
           return;
         }
+        refreshRetryRef.current = 0;
         navigate(buildLoginRedirectUrl());
       },
       onError: (error) => {
@@ -215,6 +236,20 @@ const AuthContextProvider = ({
         if (authConfig?.test === true) {
           return;
         }
+        if (isTransientAuthError(error) && refreshRetryRef.current < MAX_REFRESH_RETRIES) {
+          // Transient failure (network / 5xx / IdP hiccup): retry with backoff instead of logging
+          // the user out. A still-valid bearer keeps working and the proactive timer keeps re-arming.
+          const delay = REFRESH_RETRY_DELAYS_MS[refreshRetryRef.current] ?? 15000;
+          refreshRetryRef.current += 1;
+          setTimeout(() => {
+            if (!isExternalRedirectRef.current) {
+              silentRefresh();
+            }
+          }, delay);
+          return;
+        }
+        // Genuine auth failure (refresh token rejected) or retries exhausted: require re-login.
+        refreshRetryRef.current = 0;
         navigate(buildLoginRedirectUrl());
       },
     });
@@ -229,7 +264,11 @@ const AuthContextProvider = ({
       setUser(userQuery.data);
     } else if (userQuery.isError) {
       doSetError((userQuery.error as Error).message);
-      navigate(buildLoginRedirectUrl(), { replace: true });
+      // Only redirect to login on a genuine auth failure. A transient error (network / 5xx, e.g.
+      // the backend briefly unavailable during a deploy) must not log the user out.
+      if (!isTransientAuthError(userQuery.error)) {
+        navigate(buildLoginRedirectUrl(), { replace: true });
+      }
     }
     if (error != null && error && isAuthenticated) {
       doSetError(undefined);
