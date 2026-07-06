@@ -11,6 +11,7 @@ import { debounce } from 'lodash';
 import { useRecoilState, useSetRecoilState } from 'recoil';
 import { useNavigate } from 'react-router-dom';
 import {
+  request,
   apiBaseUrl,
   SystemRoles,
   setTokenHeader,
@@ -306,6 +307,7 @@ const AuthContextProvider = ({
     const MAX_DELAY = 10 * 60 * 1000;
     const EXPIRY_BUFFER = 2 * 60 * 1000;
     let timer: ReturnType<typeof setTimeout>;
+    let cancelled = false;
 
     const decodeExpMs = (jwt: string): number | null => {
       try {
@@ -327,15 +329,42 @@ const AuthContextProvider = ({
       const untilRefresh = expMs != null ? expMs - Date.now() - EXPIRY_BUFFER : MAX_DELAY;
       const delay = Math.max(MIN_DELAY, Math.min(untilRefresh, MAX_DELAY));
       timer = setTimeout(() => {
-        silentRefresh();
-        // Re-arm even when the refreshed token is byte-identical (server-side token reuse),
-        // since that case won't change `token` and re-run this effect.
-        arm();
+        /**
+         * Refresh WITHOUT silentRefresh/useRefreshTokenMutation here: that mutation's onMutate
+         * calls queryClient.removeQueries(), which wipes the entire React Query cache. When this
+         * timer fired mid-generation, the conversation view blanked ("chat history gone"), the
+         * unmounted stream consumer aborted the in-flight generation server-side ("Operation
+         * aborted"), and nothing refetched until the submission ended. Use the same
+         * non-destructive path as the 401 interceptor instead: fetch a token and broadcast
+         * tokenUpdated (which also sets the axios header). Failures here are tolerable — a real
+         * expiry is still covered by the interceptor and the next mount's silentRefresh.
+         */
+        request
+          .refreshToken()
+          .then((data: { token?: string } | undefined) => {
+            const refreshed = data?.token ?? '';
+            if (refreshed) {
+              request.dispatchTokenUpdatedEvent(refreshed);
+            }
+          })
+          .catch((error: unknown) => {
+            console.log('proactive token refresh failed; interceptor will cover a real 401', error);
+          })
+          .finally(() => {
+            // Re-arm even when the refreshed token is byte-identical (server-side token reuse),
+            // since that case won't change `token` and re-run this effect.
+            if (!cancelled) {
+              arm();
+            }
+          });
       }, delay);
     };
 
     arm();
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [token, isAuthenticated, authConfig?.test, silentRefresh]);
 
   useEffect(() => {
