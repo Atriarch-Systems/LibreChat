@@ -4,6 +4,7 @@
 FROM node:20-alpine AS node
 
 RUN apk upgrade --no-cache
+RUN apk add --no-cache c-ares
 RUN apk add --no-cache jemalloc
 RUN apk add --no-cache python3 py3-pip uv
 
