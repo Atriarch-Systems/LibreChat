@@ -3,8 +3,9 @@
 # Base node image
 FROM node:20-alpine AS node
 
-RUN apk upgrade --no-cache
-RUN apk add --no-cache c-ares
+# RUN apk upgrade --no-cache
+# Targeted c-ares fix for CVE-2026-33630 (floor 1.34.8-r0)
+RUN apk add --no-cache --only-upgrade c-ares
 RUN apk add --no-cache jemalloc
 RUN apk add --no-cache python3 py3-pip uv
 
