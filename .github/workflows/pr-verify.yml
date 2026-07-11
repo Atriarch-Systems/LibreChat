@@ -1,0 +1,51 @@
+name: pr-verify
+
+# Atriarch PR build gate (Cohort B derived workflow — see the fleet pr-verify
+# rollout). Builds the DEPLOY artifact (Dockerfile.multi — what atriarch-build.yml
+# ships) on every PR into the deploy branch (`atriarch`) or `main`, build-only,
+# never a push. Purpose: a PR whose image cannot build must not be mergeable and
+# must go RED so Saga's CI-watch can observe and revise (LibreChat#3 shipped a
+# build-breaking Dockerfile change with no PR check to catch it). Gate on BUILD,
+# not Trivy — the image scan gate lives in the deploy workflow.
+#
+# No path filters ON PURPOSE: this is intended as a required check, and a
+# path-filtered workflow that never starts leaves a required check eternally
+# pending, blocking docs-only PRs. A few minutes of ARC build time is cheaper.
+
+on:
+  pull_request:
+    branches: [atriarch, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: librechat-pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    name: docker-build
+    runs-on: [self-hosted, Linux, X64, amd64, arc-amd64]
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0  # the plain-Dockerfile step diffs against the PR base
+
+      - name: Build deploy image (Dockerfile.multi, no push)
+        run: |
+          docker build \
+            --network=host \
+            --file Dockerfile.multi \
+            --tag pr-verify:${{ github.event.pull_request.number }}-${{ github.sha }} \
+            .
+
+      - name: Build plain Dockerfile too when the PR touches it
+        # The plain Dockerfile is not the deploy artifact, but a PR that edits
+        # it should still prove it builds (PR#3 broke exactly this file).
+        run: |
+          if git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -qx 'Dockerfile'; then
+            docker build --network=host --file Dockerfile --tag pr-verify-plain:${{ github.sha }} .
+          else
+            echo "Dockerfile untouched — skipping the plain build."
+          fi
