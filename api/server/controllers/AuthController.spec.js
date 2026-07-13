@@ -705,7 +705,31 @@ describe('refreshController – OpenID path', () => {
   });
 
   it('should preserve invalid OpenID refresh token behavior', async () => {
-    openIdClient.refreshTokenGrant.mockRejectedValue(new Error('invalid_grant'));
+    // A genuinely rejected grant from openid-client carries an OAuth error code
+    // (e.g. ResponseBodyError with error: 'invalid_grant'), not just a message.
+    const rejection = new Error('invalid_grant');
+    rejection.error = 'invalid_grant';
+    openIdClient.refreshTokenGrant.mockRejectedValue(rejection);
+
+    await refreshController(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.send).toHaveBeenCalledWith('Invalid OpenID refresh token');
+  });
+
+  it('should return 503 when the IdP refresh fails without an OAuth error (transient)', async () => {
+    openIdClient.refreshTokenGrant.mockRejectedValue(new Error('socket hang up'));
+
+    await refreshController(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.send).toHaveBeenCalledWith('OpenID refresh temporarily unavailable');
+  });
+
+  it('should return 403 when the IdP rejects the refresh with a 4xx status', async () => {
+    const rejection = new Error('Bad Request');
+    rejection.status = 400;
+    openIdClient.refreshTokenGrant.mockRejectedValue(rejection);
 
     await refreshController(req, res);
 
