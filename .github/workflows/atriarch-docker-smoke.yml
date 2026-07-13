@@ -1,0 +1,51 @@
+name: Atriarch — Docker Build Smoke Tests
+
+# Atriarch copy of docker-smoke.yml, adapted to run on the self-hosted
+# arc-amd64 runners. Uses plain `docker build --network=host` (the pattern
+# proven in atriarch-build.yml) instead of buildx, since the ARC runners
+# build against the host docker daemon. The upstream workflow is disabled
+# in the Actions UI; keeping this as a separate file means upstream merges
+# never conflict.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [atriarch]
+    paths:
+      - '.github/workflows/atriarch-docker-smoke.yml'
+      - '.dockerignore'
+      - 'Dockerfile.multi'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'packages/client/**'
+      - 'packages/data-provider/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atriarch-docker-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client-package-target:
+    name: Build Docker client package target
+    runs-on: [self-hosted, Linux, X64, amd64, arc-amd64]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build client package target
+        # Smoke test only — image is built to the client-package-build stage
+        # and never pushed anywhere.
+        run: |
+          docker build \
+            --network=host \
+            --file Dockerfile.multi \
+            --target client-package-build \
+            --tag atriarch-librechat-smoke:${{ github.sha }} \
+            .
+
+      - name: Clean up smoke image
+        if: always()
+        run: docker rmi -f atriarch-librechat-smoke:${{ github.sha }} || true
