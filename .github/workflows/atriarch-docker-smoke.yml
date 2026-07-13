@@ -9,6 +9,13 @@ name: Atriarch — Docker Build Smoke Tests
 
 on:
   workflow_dispatch:
+  # Push trigger on this file only: registers the workflow with GitHub
+  # (it lives on the atriarch branch, not the default branch, so it is
+  # otherwise invisible to workflow_dispatch) and self-tests edits.
+  push:
+    branches: [atriarch]
+    paths:
+      - '.github/workflows/atriarch-docker-smoke.yml'
   pull_request:
     branches: [atriarch]
     paths:
