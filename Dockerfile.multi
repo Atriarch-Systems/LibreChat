@@ -14,7 +14,7 @@ RUN apk add --no-cache jemalloc
 ENV LD_PRELOAD=/usr/lib/libjemalloc.so.2
 
 WORKDIR /app
-RUN apk --no-cache add curl
+RUN apk add --no-cache curl libcurl
 RUN npm config set fetch-retry-maxtimeout 600000 && \
     npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 15000
